@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartCheck — Raqamli Baholash va Loyiha Platformasi</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background-color: #050811;
+      color: #f1f5f9;
+      font-family: Inter, system-ui, -apple-system, sans-serif;
+      background-image:
+        radial-gradient(circle at 15% 15%, rgba(34, 211, 238, 0.14), transparent 35%),
+        radial-gradient(circle at 85% 20%, rgba(37, 99, 235, 0.16), transparent 40%);
+      min-height: 100vh;
+    }
+    .glass {
+      background: rgba(11, 18, 36, 0.78);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(34, 211, 238, 0.22);
+    }
+    .neon-glow {
+      box-shadow: 0 0 24px rgba(34, 211, 238, 0.22), 0 0 48px rgba(37, 99, 235, 0.14);
+    }
+    .btn-neon {
+      background: linear-gradient(135deg, #22d3ee 0%, #2563eb 100%);
+      color: #04101f;
+      font-weight: 700;
+      transition: transform 0.15s ease, box-shadow 0.2s ease;
+    }
+    .btn-neon:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 20px rgba(34, 211, 238, 0.45);
+    }
+  </style>
+</head>
+<body>
+  <div id="app" class="max-w-6xl mx-auto px-4 py-6"></div>
+
+  <script>
+    const DB_KEY = "smartcheck_db_v1";
+    const SESSION_KEY = "smartcheck_session_v1";
+
+    function defaultDB() {
+      return {
+        users: [
+          {
+            id: "u_teacher_1",
+            name: "Azizbek Karimov",
+            contactType: "phone",
+            contact: "+998901112233",
+            password: "123",
+            role: "Ustoz"
+          },
+          {
+            id: "u_student_1",
+            name: "Madina Rustamova",
+            contactType: "email",
+            contact: "madina@smartcheck.uz",
+            password: "123",
+            role: "O'quvchi"
+          }
+        ],
+        grades: [
+          { id: "g1", studentName: "Madina Rustamova", subject: "Ingliz tili", score: 5, comment: "Faol ishtirok etdi", date: "2026-11-20", teacher: "Azizbek Karimov" },
+          { id: "g2", studentName: "Madina Rustamova", subject: "Informatika", score: 4, comment: "Amaliy topshiriq bajarildi", date: "2026-11-21", teacher: "Azizbek Karimov" }
+        ],
+        tasks: [
+          { id: "t1", title: "4000 Essential Words — Unit 1-2 lug'at", subject: "Ingliz tili", deadline: "2026-11-25", desc: "20 ta yangi so'z va misol jumlalar tayyorlash.", doneBy: [] },
+          { id: "t2", title: "HTML/CSS shablon maketi", subject: "Informatika", deadline: "2026-11-27", desc: "Mobil va kompyuter ekraniga mos sahifa tuzish.", doneBy: [] }
+        ],
+        project: {
+          title: "SmartCheck",
+          slogan: "Bilim, nazorat va innovatsion loyihalar uchun yagona raqamli muhit",
+          problem: "O'quv jarayonida baholar, topshiriqlar va loyiha taqdimotlari turli joylarda tarqoq holda yuritiladi.",
+          solution: "SmartCheck ustoz va o'quvchilarni bitta tizimda birlashtirib, elektron jurnal, vazifalar va loyihalarni tezkor boshqarish imkonini beradi."
+        },
+        customLogo: null
+      };
+    }
+
+    let db = JSON.parse(localStorage.getItem(DB_KEY)) || defaultDB();
+    let currentUser = JSON.parse(localStorage.getItem(SESSION_KEY)) || null;
+
+    // UI holatlari
+    let authTab = "login"; // 'login' | 'register' | 'forgot'
+    let regContactType = "phone";
+    let forgotStep = 1; // 1: find account, 2: verify sms/link, 3: new password
+    let forgotUser = null;
+    let generatedCode = "";
+    let linkVerified = false;
+    let activeDashboardTab = "grades";
+    let notice = null;
+
+    function saveDB() {
+      localStorage.setItem(DB_KEY, JSON.stringify(db));
+    }
+
+    function setNotice(msg, type = "info") {
+      notice = { msg, type };
+      render();
+    }
+
+    function logoSVG(size = 44) {
+      if (db.customLogo) {
+        return `<img src="${db.customLogo}" alt="SmartCheck Logo" style="width:${size}px;height:${size}px" class="rounded-xl object-cover border border-cyan-400/50" />`;
+      }
+      return `
+        <svg width="${size}" height="${size}" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" class="shrink-0">
+          <defs>
+            <linearGradient id="scGrad" x1="15" y1="10" x2="105" y2="110" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#22d3ee"/>
+              <stop offset="100%" stop-color="#2563eb"/>
+            </linearGradient>
+          </defs>
+          <!-- Akademik qalpoqcha -->
+          <polygon points="60,14 102,32 60,50 18,32" fill="url(#scGrad)" fill-opacity="0.28" stroke="url(#scGrad)" stroke-width="3"/>
+          <path d="M36 41V52C36 57 47 61 60 61C73 61 84 57 84 52V41" stroke="url(#scGrad)" stroke-width="2.5"/>
+          <line x1="95" y1="35" x2="95" y2="56" stroke="#22d3ee" stroke-width="2.5"/>
+          <!-- Markaziy olmos va tasdiq belgisi -->
+          <polygon points="60,52 84,72 60,96 36,72" fill="#081326" stroke="url(#scGrad)" stroke-width="3"/>
+          <polyline points="48,73 57,82 74,64" stroke="#22d3ee" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- Ochiq kitob -->
+          <path d="M22 96C35 88 50 90 60 98C70 90 85 88 98 96V106C85 98 70 100 60 107C50 100 35 98 22 106V96Z" stroke="url(#scGrad)" stroke-width="3"/>
+          <!-- Kichik kub -->
+          <polygon points="98,64 108,69 98,74 88,69" fill="#22d3ee" fill-opacity="0.7"/>
+        </svg>
+      `;
+    }
+
+    function handleLogoUpload(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        db.customLogo = reader.result;
+        saveDB();
+        setNotice("Logotip muvaffaqiyatli yangilandi!", "success");
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function renderHeader() {
+      return `
+        <header class="glass rounded-2xl px-5 py-3.5 mb-6 flex flex-wrap items-center justify-between gap-4 neon-glow">
+          <div class="flex items-center gap-3">
+            ${logoSVG(46)}
+            <div>
+              <div class="text-xl font-extrabold tracking-wide bg-gradient-to-r from-cyan-300 to-blue-500 bg-clip-text text-transparent">
+                SmartCheck
+              </div>
+              <div class="text-xs text-slate-400">Raqamli Kundalik & Loyiha Platformasi</div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2.5">
+            <label class="cursor-pointer text-xs px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-cyan-500/30 text-cyan-200 transition">
+              Logo yuklash
+              <input type="file" accept="image/*" class="hidden" onchange="handleLogoUpload(event)" />
+            </label>
+            ${currentUser ? `
+              <span class="hidden sm:inline-block text-xs px-3 py-1.5 rounded-full bg-cyan-500/15 border border-cyan-400/30 text-cyan-200">
+                ${currentUser.role}: <strong>${currentUser.name}</strong>
+              </span>
+              <button onclick="logout()" class="text-xs px-3.5 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/40 text-rose-200 transition">
+                Chiqish
+              </button>
+            ` : ""}
+          </div>
+        </header>
+      `;
+    }
+
+    function renderNotice() {
+      if (!notice) return "";
+      const colors = notice.type === "error"
+        ? "bg-rose-500/15 border-rose-400/40 text-rose-200"
+        : notice.type === "success"
+        ? "bg-emerald-500/15 border-emerald-400/40 text-emerald-200"
+        : "bg-cyan-500/15 border-cyan-400/40 text-cyan-200";
+      return `
+        <div class="mb-5 px-4 py-3 rounded-xl border ${colors} flex items-center justify-between text-sm">
+          <span>${notice.msg}</span>
+          <button onclick="notice=null;render();" class="ml-4 text-xs opacity-80 hover:opacity-100">✕</button>
+        </div>
+      `;
+    }
+
+    // --- AVTORIZATSIYA ---
+    function switchAuthTab(tab) {
+      authTab = tab;
+      if (tab === "forgot") {
+        forgotStep = 1;
+        forgotUser = null;
+        generatedCode = "";
+        linkVerified = false;
+      }
+      notice = null;
+      render();
+    }
+
+    function loginUser(e) {
+      e.preventDefault();
+      const contact = document.getElementById("loginContact").value.trim();
+      const password = document.getElementById("loginPassword").value;
+      const found = db.users.find(u => u.contact.toLowerCase() === contact.toLowerCase() && u.password === password);
+      if (!found) {
+        setNotice("Login (telefon/email) yoki parol noto'g'ri!", "error");
+        return;
+      }
+      currentUser = found;
+      localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+      activeDashboardTab = found.role === "Ustoz" ? "gradebook" : "grades";
+      notice = null;
+      render();
+    }
+
+    function demoLogin(role) {
+      const user = db.users.find(u => u.role === role);
+      currentUser = user;
+      localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+      activeDashboardTab = role === "Ustoz" ? "gradebook" : "grades";
+      notice = null;
+      render();
+    }
+
+    function registerUser(e) {
+      e.preventDefault();
+      const name = document.getElementById("regName").value.trim();
+      const contact = document.getElementById("regContact").value.trim();
+      const role = document.getElementById("regRole").value;
+      const password = document.getElementById("regPassword").value;
+
+      if (db.users.some(u => u.contact.toLowerCase() === contact.toLowerCase())) {
+        setNotice("Bu telefon raqam yoki email allaqachon ro'yxatdan o'tgan!", "error");
+        return;
+      }
+
+      const newUser = {
+        id: "u_" + Date.now(),
+        name,
+        contactType: regContactType,
+        contact,
+        password,
+        role
+      };
+      db.users.push(newUser);
+      saveDB();
+      currentUser = newUser;
+      localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+      activeDashboardTab = role === "Ustoz" ? "gradebook" : "grades";
+      setNotice(`Xush kelibsiz, ${name}! Hisobingiz yaratildi.`, "success");
+    }
+
+    // Parolni tiklash: 1-qadam (hisobni topish va tasdiqlash usulini yuborish)
+    function sendVerification(e) {
+      e.preventDefault();
+      const inputVal = document.getElementById("forgotContact").value.trim();
+      const user = db.users.find(u => u.contact.toLowerCase() === inputVal.toLowerCase());
+      if (!user) {
+        setNotice("Bunday telefon raqam yoki email bilan ro'yxatdan o'tgan hisob topilmadi.", "error");
+        return;
+      }
+      forgotUser = user;
+      linkVerified = false;
+      if (user.contactType === "phone") {
+        generatedCode = String(Math.floor(100000 + Math.random() * 900000));
+        setNotice(`${user.contact} raqamiga 6 xonali SMS-kod yuborildi.`, "info");
+      } else {
+        generatedCode = "";
+        setNotice(`${user.contact} manziliga parolni tiklash havolasi yuborildi.`, "info");
+      }
+      forgotStep = 2;
+      render();
+    }
+
+    function verifySmsCode(e) {
+      e.preventDefault();
+      const entered = document.getElementById("smsInput").value.trim();
+      if (entered !== generatedCode) {
+        setNotice("SMS-kod noto'g'ri! Qayta tekshiring.", "error");
+        return;
+      }
+      forgotStep = 3;
+      setNotice("SMS-kod tasdiqlandi! Endi yangi parol kiriting.", "success");
+    }
+
+    function confirmEmailLink() {
+      linkVerified = true;
+      forgotStep = 3;
+      setNotice("Email tiklash havolasi tasdiqlandi! Endi yangi parol kiriting.", "success");
+    }
+
+    function saveNewPassword(e) {
+      e.preventDefault();
+      if (forgotStep !== 3 || !forgotUser) return;
+      const p1 = document.getElementById("newPass1").value;
+      const p2 = document.getElementById("newPass2").value;
+      if (p1.length < 3) {
+        setNotice("Parol kamida 3 ta belgidan iborat bo'lsin.", "error");
+        return;
+      }
+      if (p1 !== p2) {
+        setNotice("Parollar bir xil emas!", "error");
+        return;
+      }
+      const idx = db.users.findIndex(u => u.id === forgotUser.id);
+      if (idx !== -1) {
+        db.users[idx].password = p1;
+        saveDB();
+      }
+      authTab = "login";
+      forgotStep = 1;
+      forgotUser = null;
+      setNotice("Parol muvaffaqiyatli yangilandi! Endi tizimga kiring.", "success");
+    }
+
+    function logout() {
+      currentUser = null;
+      localStorage.removeItem(SESSION_KEY);
+      notice = null;
+      render();
+    }
+
+    function renderAuth() {
+      return `
+        <div class="grid md:grid-cols-2 gap-6 items-start">
+          <div class="glass rounded-2xl p-6 md:p-8 neon-glow">
+            <div class="flex items-center gap-3 mb-4">
+              ${logoSVG(54)}
+              <div>
+                <h1 class="text-2xl font-bold text-white">${db.project.title}</h1>
+                <p class="text-xs text-cyan-300">Kundalik.com uslubidagi aqlli portal</p>
+              </div>
+            </div>
+            <p class="text-slate-300 text-sm leading-relaxed mb-5">${db.project.slogan}</p>
+            <div class="space-y-3 text-sm">
+              <div class="p-3.5 rounded-xl bg-slate-900/70 border border-cyan-500/20">
+                <div class="text-cyan-300 font-semibold mb-1">Muammo</div>
+                <p class="text-slate-300 text-xs leading-relaxed">${db.project.problem}</p>
+              </div>
+              <div class="p-3.5 rounded-xl bg-slate-900/70 border border-blue-500/25">
+                <div class="text-blue-300 font-semibold mb-1">Yechim</div>
+                <p class="text-slate-300 text-xs leading-relaxed">${db.project.solution}</p>
+              </div>
+            </div>
+
+            <div class="mt-6 pt-5 border-t border-slate-800">
+              <div class="text-xs text-slate-400 mb-2.5">Tezkor sinov (Demo hisoblar):</div>
+              <div class="flex flex-wrap gap-2.5">
+                <button onclick="demoLogin('Ustoz')" class="text-xs px-3.5 py-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/40 text-cyan-200 transition">
+                  Ustoz sifatida kirish
+                </button>
+                <button onclick="demoLogin(\"O'quvchi\")" class="text-xs px-3.5 py-2 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 border border-blue-400/40 text-blue-200 transition">
+                  O'quvchi sifatida kirish
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass rounded-2xl p-6 md:p-8 neon-glow">
+            <div class="flex gap-2 mb-6 bg-slate-900/80 p-1 rounded-xl border border-slate-800">
+              <button onclick="switchAuthTab('login')" class="flex-1 py-2 text-xs font-semibold rounded-lg transition ${authTab === 'login' ? 'btn-neon' : 'text-slate-400 hover:text-white'}">
+                Tizimga kirish
+              </button>
+              <button onclick="switchAuthTab('register')" class="flex-1 py-2 text-xs font-semibold rounded-lg transition ${authTab === 'register' ? 'btn-neon' : 'text-slate-400 hover:text-white'}">
+                Ro'yxatdan o'tish
+              </button>
+            </div>
+
+            ${authTab === "login" ? `
+              <form onsubmit="loginUser(event)" class="space-y-4">
+                <div>
+                  <label class="block text-xs text-slate-300 mb-1.5">Telefon raqam yoki Email</label>
+                  <input id="loginContact" required placeholder="+998901112233 yoki madina@smartcheck.uz" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-cyan-400 outline-none text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-300 mb-1.5">Parol</label>
+                  <input id="loginPassword" type="password" required placeholder="••••••••" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-cyan-400 outline-none text-sm" />
+                </div>
+                <div class="flex justify-end">
+                  <button type="button" onclick="switchAuthTab('forgot')" class="text-xs text-cyan-300 hover:underline">
+                    Parolni unutdingizmi?
+                  </button>
+                </div>
+                <button type="submit" class="w-full py-2.5 rounded-xl btn-neon text-sm">Kirish</button>
+              </form>
+            ` : authTab === "register" ? `
+              <form onsubmit="registerUser(event)" class="space-y-4">
+                <div>
+                  <label class="block text-xs text-slate-300 mb-1.5">Ism-familiya</label>
+                  <input id="regName" required placeholder="Masalan: Abdurashidxonov Muhsinxon" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-cyan-400 outline-none text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-300 mb-1.5">Bog'lanish usuli</label>
+                  <div class="grid grid-cols-2 gap-2">
+                    <button type="button" onclick="regContactType='phone';render();" class="py-2 rounded-xl text-xs border ${regContactType==='phone' ? 'border-cyan-400 bg-cyan-500/15 text-cyan-200' : 'border-slate-700 text-slate-400'}">
+                      Telefon raqam
+                    </button>
+                    <button type="button" onclick="regContactType='email';render();" class="py-2 rounded-xl text-xs border ${regContactType==='email' ? 'border-cyan-400 bg-cyan-500/15 text-cyan-200' : 'border-slate-700 text-slate-400'}">
+                      Email manzil
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-300 mb-1.5">${regContactType === 'phone' ? 'Telefon raqam' : 'Email manzil'}</label>
+                  <input id="regContact" type="${regContactType === 'phone' ? 'tel' : 'email'}" required placeholder="${regContactType === 'phone' ? '+998901234567' : 'ism@example.com'}" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-cyan-400 outline-none text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-300 mb-1.5">Rolni tanlang</label>
+                  <select id="regRole" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-cyan-400 outline-none text-sm">
+                    <option value="O'quvchi">O'quvchi</option>
+                    <option value="Ustoz">Ustoz</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-300 mb-1.5">Parol yarating</label>
+                  <input id="regPassword" type="password" required placeholder="Kamida 3 ta belgi" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-cyan-400 outline-none text-sm" />
+                </div>
+                <button type="submit" class="w-full py-2.5 rounded-xl btn-neon text-sm">Ro'yxatdan o'tish</button>
+              </form>
+            ` : `
+              <div class="space-y-4">
+                <div class="flex items-center justify-between">
+                  <h2 class="text-base font-bold text-cyan-200">Parolni tiklash (${forgotStep}/3-qadam)</h2>
+                  <button onclick="switchAuthTab('login')" class="text-xs text-slate-400 hover:text-white">← Ortga</button>
+                </div>
+
+                ${forgotStep === 1 ? `
+                  <form onsubmit="sendVerification(event)" class="space-y-4">
+                    <p class="text-xs text-slate-300">Ro'yxatdan o'tgan telefon raqam yoki emailingizni kiriting. Hisob qanday ochilgan bo'lsa, o'sha kanalga tasdiqlash yuboriladi.</p>
+                    <input id="forgotContact" required placeholder="+998901112233 yoki madina@smartcheck.uz" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-cyan-400 outline-none text-sm" />
+                    <button type="submit" class="w-full py-2.5 rounded-xl btn-neon text-sm">Tasdiqlash usulini yuborish</button>
+                  </form>
+                ` : forgotStep === 2 ? `
+                  ${forgotUser.contactType === "phone" ? `
+                    <div class="p-4 rounded-xl bg-cyan-950/50 border border-cyan-400/40 space-y-2">
+                      <div class="text-xs text-cyan-300 font-semibold">📱 Yangi SMS-xabar (${forgotUser.contact})</div>
+                      <div class="text-xs text-slate-300">SmartCheck tasdiqlash kodi: <strong class="text-cyan-300 text-sm tracking-widest">${generatedCode}</strong></div>
+                    </div>
+                    <form onsubmit="verifySmsCode(event)" class="space-y-3 mt-3">
+                      <label class="block text-xs text-slate-300">6 xonali SMS-kodni kiriting</label>
+                      <input id="smsInput" required maxlength="6" placeholder="000000" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-cyan-400 outline-none text-sm tracking-widest" />
+                      <button type="submit" class="w-full py-2.5 rounded-xl btn-neon text-sm">Kodni tasdiqlash</button>
+                    </form>
+                  ` : `
+                    <div class="p-4 rounded-xl bg-blue-950/50 border border-blue-400/40 space-y-3">
+                      <div class="text-xs text-blue-300 font-semibold">✉️ Yangi Email xabar (${forgotUser.contact})</div>
+                      <p class="text-xs text-slate-300">Parolni tiklash uchun quyidagi havolani bosing:</p>
+                      <button type="button" onclick="confirmEmailLink()" class="w-full py-2 rounded-xl bg-blue-500/25 hover:bg-blue-500/35 border border-blue-400 text-blue-200 text-xs font-semibold transition">
+                        🔗 Parolni tiklash havolasini ochish
+                      </button>
+                    </div>
+                  `}
+                ` : `
+                  <form onsubmit="saveNewPassword(event)" class="space-y-3">
+                    <label class="block text-xs text-slate-300">Yangi parol</label>
+                    <input id="newPass1" type="password" required class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-cyan-400 outline-none text-sm" />
+                    <label class="block text-xs text-slate-300">Yangi parolni tasdiqlang</label>
+                    <input id="newPass2" type="password" required class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 focus:border-cyan-400 outline-none text-sm" />
+                    <button type="submit" class="w-full py-2.5 rounded-xl btn-neon text-sm">Parolni saqlash</button>
+                  </form>
+                `}
+              </div>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+    // --- USTOZ VA O'QUVCHI KABINETLARI ---
+    function addGrade(e) {
+      e.preventDefault();
+      const studentName = document.getElementById("gradeStudent").value;
+      const subject = document.getElementById("gradeSubject").value;
+      const score = Number(document.getElementById("gradeScore").value);
+      const comment = document.getElementById("gradeComment").value.trim() || "—";
+      const date = new Date().toISOString().slice(0, 10);
+
+      db.grades.unshift({
+        id: "g_" + Date.now(),
+        studentName,
+        subject,
+        score,
+        comment,
+        date,
+        teacher: currentUser.name
+      });
+      saveDB();
+      setNotice(`${studentName} uchun ${subject} fanidan "${score}" baho qo'yildi.`, "success");
+    }
+
+    function deleteGrade(id) {
+      db.grades = db.grades.filter(g => g.id !== id);
+      saveDB();
+      setNotice("Baho o'chirildi.", "info");
+    }
+
+    function addTask(e) {
+      e.preventDefault();
+      const title = document.getElementById("taskTitle").value.trim();
+      const subject = document.getElementById("taskSubject").value;
+      const deadline = document.getElementById("taskDeadline").value;
+      const desc = document.getElementById("taskDesc").value.trim();
+
+      db.tasks.unshift({
+        id: "t_" + Date.now(),
+        title,
+        subject,
+        deadline,
+        desc,
+        doneBy: []
+      });
+      saveDB();
+      setNotice("Yangi uyga vazifa qo'shildi!", "success");
+    }
+
+    function toggleTaskDone(taskId) {
+      const task = db.tasks.find(t => t.id === taskId);
+      if (!task) return;
+      const idx = task.doneBy.indexOf(currentUser.id);
+      if (idx === -1) task.doneBy.push(currentUser.id);
+      else task.doneBy.splice(idx, 1);
+      saveDB();
+      render();
+    }
+
+    function saveProjectInfo(e) {
+      e.preventDefault();
+      db.project.title = document.getElementById("projTitle").value.trim();
+      db.project.slogan = document.getElementById("projSlogan").value.trim();
+      db.project.problem = document.getElementById("projProblem").value.trim();
+      db.project.solution = document.getElementById("projSolution").value.trim();
+      saveDB();
+      setNotice("Loyiha ma'lumotlari yangilandi!", "success");
+    }
+
+    function renderDashboard() {
+      const isTeacher = currentUser.role === "Ustoz";
+      const myGrades = isTeacher
+        ? db.grades
+        : db.grades.filter(g => g.studentName.toLowerCase() === currentUser.name.toLowerCase());
+
+      const avg = myGrades.length
+        ? (myGrades.reduce((acc, g) => acc + Number(g.score), 0) / myGrades.length).toFixed(2)
+        : "0.00";
+
+      const studentsList = db.users.filter(u => u.role === "O'quvchi");
+      if (!studentsList.some(s => s.name === "Madina Rustamova")) {
+        studentsList.unshift({ name: "Madina Rustamova" });
+      }
+
+      return `
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <div class="glass rounded-2xl p-4 border border-cyan-500/25">
+            <div class="text-xs text-slate-400">O'rtacha ball</div>
+            <div class="text-2xl font-extrabold text-cyan-300 mt-1">${avg}</div>
+          </div>
+          <div class="glass rounded-2xl p-4 border border-blue-500/25">
+            <div class="text-xs text-slate-400">Jami baholar</div>
+            <div class="text-2xl font-extrabold text-blue-300 mt-1">${myGrades.length}</div>
+          </div>
+          <div class="glass rounded-2xl p-4 border border-cyan-500/25">
+            <div class="text-xs text-slate-400">Faol topshiriqlar</div>
+            <div class="text-2xl font-extrabold text-emerald-300 mt-1">${db.tasks.length}</div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2 mb-6">
+          <button onclick="activeDashboardTab='grades';render();" class="px-4 py-2 rounded-xl text-xs font-semibold ${activeDashboardTab==='grades' ? 'btn-neon' : 'glass text-slate-300'}">
+            ${isTeacher ? "Elektron Jurnal (Baholash)" : "Mening Baholarim"}
+          </button>
+          <button onclick="activeDashboardTab='tasks';render();" class="px-4 py-2 rounded-xl text-xs font-semibold ${activeDashboardTab==='tasks' ? 'btn-neon' : 'glass text-slate-300'}">
+            Uyga Vazifalar
+          </button>
+          <button onclick="activeDashboardTab='project';render();" class="px-4 py-2 rounded-xl text-xs font-semibold ${activeDashboardTab==='project' ? 'btn-neon' : 'glass text-slate-300'}">
+            Loyiha Taqdimoti
+          </button>
+        </div>
+
+        ${activeDashboardTab === "grades" ? `
+          <div class="grid lg:grid-cols-3 gap-6">
+            ${isTeacher ? `
+              <form onsubmit="addGrade(event)" class="glass rounded-2xl p-5 space-y-3.5 h-fit">
+                <h3 class="font-bold text-cyan-200 text-sm">Yangi baho qo'yish</h3>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">O'quvchi</label>
+                  <select id="gradeStudent" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm">
+                    ${studentsList.map(s => `<option value="${s.name}">${s.name}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Fan</label>
+                  <select id="gradeSubject" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm">
+                    <option>Ingliz tili</option>
+                    <option>Informatika</option>
+                    <option>Matematika</option>
+                    <option>Fizika</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Baho</label>
+                  <select id="gradeScore" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm">
+                    <option value="5">5 — A'lo</option>
+                    <option value="4">4 — Yaxshi</option>
+                    <option value="3">3 — Qoniqarli</option>
+                    <option value="2">2 — Qoniqarsiz</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Izoh</label>
+                  <input id="gradeComment" placeholder="Darsdagi faollik yoki test natijasi" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm" />
+                </div>
+                <button type="submit" class="w-full py-2.5 rounded-xl btn-neon text-xs">Bahoni saqlash</button>
+              </form>
+            ` : ""}
+
+            <div class="${isTeacher ? 'lg:col-span-2' : 'lg:col-span-3'} glass rounded-2xl p-5 overflow-x-auto">
+              <h3 class="font-bold text-white text-sm mb-4">${isTeacher ? "Barcha qo'yilgan baholar" : "Shaxsiy baholar ro'yxati"}</h3>
+              ${myGrades.length ? `
+                <table class="w-full text-left text-xs sm:text-sm">
+                  <thead>
+                    <tr class="border-b border-slate-800 text-slate-400">
+                      ${isTeacher ? "<th class='py-2 pr-3'>O'quvchi</th>" : ""}
+                      <th class='py-2 pr-3'>Fan</th>
+                      <th class='py-2 pr-3'>Baho</th>
+                      <th class='py-2 pr-3'>Izoh</th>
+                      <th class='py-2 pr-3'>Sana</th>
+                      ${isTeacher ? "<th class='py-2'>Amal</th>" : ""}
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-800/70">
+                    ${myGrades.map(g => `
+                      <tr>
+                        ${isTeacher ? `<td class="py-3 pr-3 font-medium text-white">${g.studentName}</td>` : ""}
+                        <td class="py-3 pr-3 text-cyan-200">${g.subject}</td>
+                        <td class="py-3 pr-3"><span class="px-2.5 py-1 rounded-lg bg-cyan-500/20 border border-cyan-400/40 font-bold text-cyan-200">${g.score}</span></td>
+                        <td class="py-3 pr-3 text-slate-300">${g.comment}</td>
+                        <td class="py-3 pr-3 text-slate-400">${g.date}</td>
+                        ${isTeacher ? `<td class="py-3"><button onclick="deleteGrade('${g.id}')" class="text-rose-400 hover:underline text-xs">O'chirish</button></td>` : ""}
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              ` : `<p class="text-xs text-slate-400">Hozircha baholar mavjud emas.</p>`}
+            </div>
+          </div>
+        ` : activeDashboardTab === "tasks" ? `
+          <div class="grid lg:grid-cols-3 gap-6">
+            ${isTeacher ? `
+              <form onsubmit="addTask(event)" class="glass rounded-2xl p-5 space-y-3 h-fit">
+                <h3 class="font-bold text-cyan-200 text-sm">Yangi topshiriq berish</h3>
+                <input id="taskTitle" required placeholder="Topshiriq sarlavhasi" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm" />
+                <select id="taskSubject" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm">
+                  <option>Ingliz tili</option>
+                  <option>Informatika</option>
+                  <option>Matematika</option>
+                </select>
+                <input id="taskDeadline" type="date" required value="2026-11-28" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm" />
+                <textarea id="taskDesc" rows="3" required placeholder="Batafsil izoh..." class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm"></textarea>
+                <button type="submit" class="w-full py-2.5 rounded-xl btn-neon text-xs">Topshiriqni joylash</button>
+              </form>
+            ` : ""}
+            <div class="${isTeacher ? 'lg:col-span-2' : 'lg:col-span-3'} space-y-3">
+              ${db.tasks.map(t => {
+                const isDone = t.doneBy.includes(currentUser.id);
+                return `
+                  <div class="glass rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30">${t.subject}</span>
+                        <span class="text-xs text-slate-400">Muddat: ${t.deadline}</span>
+                      </div>
+                      <h4 class="font-bold text-white text-base">${t.title}</h4>
+                      <p class="text-xs text-slate-300 mt-1">${t.desc}</p>
+                    </div>
+                    ${!isTeacher ? `
+                      <button onclick="toggleTaskDone('${t.id}')" class="shrink-0 px-4 py-2 rounded-xl text-xs font-semibold border transition ${isDone ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200' : 'bg-slate-800 border-slate-600 text-slate-200 hover:border-cyan-400'}">
+                        ${isDone ? "✓ Bajarildi" : "Bajarilgan deb belgilash"}
+                      </button>
+                    ` : `<span class="text-xs text-cyan-300 shrink-0">Bajarganlar: ${t.doneBy.length} ta</span>`}
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          </div>
+        ` : `
+          <div class="glass rounded-2xl p-6 space-y-4">
+            <div class="flex items-center gap-3">
+              ${logoSVG(48)}
+              <div>
+                <h3 class="text-xl font-bold text-white">${db.project.title}</h3>
+                <p class="text-xs text-cyan-300">${db.project.slogan}</p>
+              </div>
+            </div>
+            <div class="grid md:grid-cols-2 gap-4 pt-2">
+              <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800">
+                <div class="text-xs font-semibold text-cyan-300 mb-1">Muammo</div>
+                <p class="text-sm text-slate-300">${db.project.problem}</p>
+              </div>
+              <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800">
+                <div class="text-xs font-semibold text-blue-300 mb-1">Yechim</div>
+                <p class="text-sm text-slate-300">${db.project.solution}</p>
+              </div>
+            </div>
+
+            ${isTeacher ? `
+              <form onsubmit="saveProjectInfo(event)" class="pt-4 border-t border-slate-800 space-y-3">
+                <h4 class="text-sm font-bold text-cyan-200">Loyiha ma'lumotlarini tahrirlash</h4>
+                <div class="grid sm:grid-cols-2 gap-3">
+                  <input id="projTitle" value="${db.project.title}" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm" />
+                  <input id="projSlogan" value="${db.project.slogan}" class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm" />
+                </div>
+                <textarea id="projProblem" rows="2" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm">${db.project.problem}</textarea>
+                <textarea id="projSolution" rows="2" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm">${db.project.solution}</textarea>
+                <button type="submit" class="px-5 py-2.5 rounded-xl btn-neon text-xs">O'zgarishlarni saqlash</button>
+              </form>
+            ` : ""}
+          </div>
+        `}
+      `;
+    }
+
+    function render() {
+      document.getElementById("app").innerHTML = `
+        ${renderHeader()}
+        ${renderNotice()}
+        ${currentUser ? renderDashboard() : renderAuth()}
+      `;
+    }
+
+    render();
+  </script>
+</body>
+</html>
